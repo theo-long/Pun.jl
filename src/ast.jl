@@ -2,7 +2,7 @@ abstract type Command end
 
 struct Assign <: Command
     symbol :: Symbol
-    f :: Function # from values for the free variables to a command
+    f :: Function # from values for the free variables to a Program
     free :: Vector{Symbol}
 end
 

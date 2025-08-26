@@ -25,7 +25,7 @@ function interpret_program(block::Block, state)
     @assert !isnothing(block.retvar) "Block must end in a return statement."
 
     retval = state.vals[block.retvar]
-    @assert length(state.vals) == 1 "Returning $(cmd.retvar) but there are $(length(state.vals)) values: $(state.vals)"
+    @assert length(state.vals) == 1 "Variables must be unassigned or returned at end of `@prob` block: $(collect([k for k in keys(state.vals) if k != block.retvar]))"
 
     state.vals = old_vals
     return retval
@@ -108,6 +108,18 @@ function accumulate_partials!(val::Int, partials)
     nothing
 end
 
+function accumulate_partials!(val::Float64, partials)
+    nothing
+end
+
+# Structs:
+function accumulate_partials!(val, partials)
+    # recursively accumulate for all fields
+    for field in fieldnames(typeof(val))
+        accumulate_partials!(getfield(val, field), partials)
+    end
+end
+
 function accumulate_partials!(val::Union{Vector,Tuple}, partials)
     for x in val
         accumulate_partials!(x, partials)
@@ -173,6 +185,28 @@ function stock(v::Bool, cfg)
 end
 function stock(v::Int, cfg)
     return v
+end
+function stock(v::Dict, cfg)
+    return Dict(k => stock(v[k], cfg) for k in keys(v))
+end
+function stock(v, cfg)
+    # apply stock to each field
+    if ismutable(v)
+        # For mutable structs, modify in place
+        for field in fieldnames(typeof(v))
+            setfield!(v, field, stock(getfield(v, field), cfg))
+        end
+        return v
+    elseif v isa NamedTuple
+        # For NamedTuples, construct new one with stock'd field values
+        field_names = keys(v)
+        field_values = [stock(getfield(v, field), cfg) for field in field_names]
+        return NamedTuple{field_names}(field_values)
+    else
+        # For immutable structs, construct a new instance
+        field_values = [stock(getfield(v, field), cfg) for field in fieldnames(typeof(v))]
+        return typeof(v)(field_values...)
+    end
 end
 
 # Note: assessing with stock measure.

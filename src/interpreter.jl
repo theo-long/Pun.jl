@@ -83,6 +83,9 @@ function uninterpret_program(cmd::Dirac, state, value)
     # @assert value == cmd.value "Dirac value $value does not match expected value $(cmd.value)"
     # TODO: if not equal, set logweight to -Inf, maybe raise an exception to be caught by `assess`?
     # Need a multiple-dispatch equality test that uses isapprox for floating point.
+    if !isapproximately(value, cmd.value)
+        state.logweight = -Inf
+    end
 end
 
 function interpret_program(cmd::Normal, state)

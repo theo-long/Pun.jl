@@ -1,5 +1,7 @@
 # Pun.jl
 
+**This is a work-in-progress implementation.**
+
 *Automatic Radon-Nikodym Differentiation via **P**robabilistic **Un**computation*
 
 Pun is a new probabilistic programming language, with two distinguishing features:
@@ -42,17 +44,3 @@ In this case, the density we get is exact. This is because for every unassignmen
 - In `flip(p)`, the posterior of `u` given `b` is precisely `uniform(0, p)` when `b` is true, and `uniform(p, 1)` when `b` is false.
 
 In general, Pun will give unbiased density estimates even when unassignments are not exact. However, each unassignment adds variance to the overall density estimator Pun implements, based on the $\chi^2$ divergence from the true posterior to the unassignment distribution.
-
-
-
-### Variational inference
-
-```julia
-vae(theta, phi) = @prob begin
-  z <<= iid(normal(0, 1), d)
-  x <<= let x_stats = decode(z, theta); mapM(normal, x_stats); end
-  z >>= let z_stats = encode(x, phi); mapM(normal, z_stats); end
-  return x
-end
-```
-Can also do normalizing flows and diffusion models (?). Can we do VI?

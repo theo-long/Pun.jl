@@ -8,7 +8,6 @@ include("structwalk.jl");
 include("parser.jl");
 include("interpreter.jl");
 include("linalg.jl");
-include("meta.jl");
 include("inference.jl")
 
 end

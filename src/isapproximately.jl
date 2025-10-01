@@ -46,6 +46,31 @@ function isapproximately(a, b; kwargs...)
         return keys(a) == keys(b) && all(isapproximately.(values(a), values(b); kwargs...))
     elseif a isa AbstractArray && b isa AbstractArray
         return size(a) == size(b) && all(isapproximately.(a, b; kwargs...))
+    elseif a isa AbstractSet && b isa AbstractSet
+        if length(a) != length(b)
+            return false
+        end
+        
+        # Convert to arrays and find matching pairs using approximate equality
+        a_array = collect(a)
+        b_array = collect(b)
+        
+        # For each element in a, find a matching element in b
+        used_indices = falses(length(b_array))
+        for elem_a in a_array
+            found_match = false
+            for (i, elem_b) in enumerate(b_array)
+                if !used_indices[i] && isapproximately(elem_a, elem_b; kwargs...)
+                    used_indices[i] = true
+                    found_match = true
+                    break
+                end
+            end
+            if !found_match
+                return false
+            end
+        end
+        return true
     elseif isstructtype(typeof(a)) && isstructtype(typeof(b))
         # Handle structs by comparing all fields
         if fieldnames(typeof(a)) == fieldnames(typeof(b))
@@ -64,8 +89,4 @@ function isstructtype(T::Type)
     return T isa DataType && !isabstracttype(T) && !isprimitivetype(T)
 end
 
-# Convenience method for comparing with a default tolerance
-function isapproximately(a, b)
-    return isapproximately(a, b; rtol=1e-4, atol=0.0)
-end
 

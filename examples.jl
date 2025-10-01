@@ -1,7 +1,7 @@
 f() = @prob begin
     x <<= random()
-    y .<<= x * 2 # equivalent to y <<= dirac(x * 2)
-    x .>>= y / 2 # equivalent to x >>= dirac(y / 2)
+    y <<= dirac(x * 2) # equivalent to y <<= dirac(x * 2)
+    x >>= dirac(y / 2) # equivalent to x >>= dirac(y / 2)
     return y
 end
 
@@ -14,7 +14,7 @@ end
 
 flip(p) = @prob begin
     u  <<= random()
-    b .<<= u < p
+    b <<= dirac(u < p)
     u  >>= b ? uniform(0, p) : uniform(p, 1)
     return b
 end
@@ -28,7 +28,11 @@ end
 
 geometric(p) = @prob begin
     b <<= flip(p)
-    n <<= b ? dirac(0) : pushforward(geometric(p), x -> x + 1, x -> x - 1)
+    n <<= if b
+        dirac(0)
+    else
+        pushforward(geometric(p), x -> x + 1, x -> x - 1)
+    end
     b .>>= n == 0
     return n
 end
@@ -44,11 +48,17 @@ iid(p, n) = @prob begin
 end
 
 categorical(ws) = @prob begin
-    cumsum_ws = cumsum(ws ./ sum(ws)) # can use "=" because the expression does not depend on random variables assigned in this @prob scope.
-    u <<= random()
-    j .<<= findfirst(cumsum_ws .>= u)
-    u >>= uniform(j == 1 ? 0 : cumsum_ws[j-1], cumsum_ws[j])
-    return j
+    W = sum(ws)
+    if W == 0
+        j <<= dirac(NaN)
+        return j
+    else
+        cumsum_ws = cumsum(ws ./ W) # can use "=" because the expression does not depend on random variables assigned in this @prob scope.
+        u <<= random()
+        j .<<= findfirst(cumsum_ws .>= u)
+        u >>= uniform(j == 1 ? 0 : cumsum_ws[j-1], cumsum_ws[j])
+        return j
+    end
 end
 
 mapM(f, xs) = @prob begin
@@ -63,14 +73,13 @@ end
 
 shuffle(xs) = @prob begin
     if isempty(xs)
-        l .<<= []
-        return l
+        return []
     else
         # Select a random index to move to the front.
         j <<= categorical(ones(length(xs)))
         fst .<<= xs[j]
         # Shuffle the remainder of the list.
-        rst <<= shuffle([xs[1:j-1]..., xs[j+1:end]...])
+        rst <<= shuffle(vcat(xs[1:j-1], xs[j+1:end]))
         # Uncompute the chosen index, by choosing among the indices equal to `fst`
         j >>= categorical(xs .== fst)
         # Return the shuffled list.
@@ -78,6 +87,8 @@ shuffle(xs) = @prob begin
     end
 end
 
+# Exact if p is exchangeable.
+# Valid [unbiased] if p(permute(xs)) > 0 whenever p(xs) > 0.
 sorted(p) = @prob begin
     xs <<= p
     ys .<<= sort(xs)
@@ -85,13 +96,30 @@ sorted(p) = @prob begin
     return ys
 end
 
+⊗(p, q) = @prob begin
+    x <<= p
+    y <<= q
+    return (x, y)
+end
+
+⨵(p, q) = @prob begin
+    x <<= p
+    y <<= q(x)
+    return (x, y)
+end
+
+⨴(p, q) = @prob begin
+    y <<= q
+    x <<= p(y)
+    return (x, y)
+end
+
 beta(a, b) = @prob begin
     n = a + b - 1
     xs <<= sorted(iid(random(), n))
     x .<<= xs[a]
     xs >>= @prob begin
-        prefix <<= sorted(iid(uniform(0, x), a-1))
-        suffix <<= sorted(iid(uniform(x, 1), b-1))
+        (prefix, suffix) <<= sorted(iid(uniform(0, x), a-1)) ⊗ sorted(iid(uniform(x, 1), b-1))
         xs .<<= [prefix..., x, suffix...]
         (prefix, suffix) .>>= (xs[1:a-1], xs[a+1:end])
         return xs
@@ -112,11 +140,48 @@ circle_example(r) = @prob begin
     return point
 end
 
+
+uniform_on_circle(r) = @prob begin
+    theta <<= uniform(-pi, pi)
+    point <<= dirac((r*cos(theta), r*sin(theta)))
+    theta >>= dirac(atan(point[2]/r, point[1]/r))
+    return point
+end
+
 example2(a, b) = @prob begin
     u <<= beta(a, b)
     return (u, u)
 end
 
+rayleigh() = @prob begin
+    x <<= normal(0, 1)
+    y <<= normal(0, 1)
+    r <<= dirac(sqrt(x^2 + y^2))
+    (x, y) >>= uniform_on_circle(r)
+    return r
+end
+
+circle_example_2(r) = @prob begin
+    u1 <<= normal(0, 1)
+    u2 <<= normal(0, 1)
+    z .<<= sqrt(u1^2 + u2^2)
+    (x, y) .<<= (u1*r/z, u2*r/z)
+    (u1, u2) .>>= (x*z/r, y*z/r)
+    z >>= rayleigh()
+    return (x, y)
+end
+
+absnormal(std) = @prob begin
+    z <<= normal(0, std)
+    x .<<= abs(z)
+    z >>= @prob begin
+        is_pos <<= flip(0.5)
+        z .<<= is_pos ? x : -x
+        is_pos .>>= z > 0
+        return z
+    end
+    return x
+end
 
 betabernExact(a, b) = @prob begin
     u <<= beta(a, b)
@@ -126,7 +191,6 @@ betabernExact(a, b) = @prob begin
 end
 
 
-# 
 betabernIS(a, b) = @prob begin
     u <<= beta(a, b)
     y <<= flip(u)
@@ -141,43 +205,46 @@ betabernIS(a, b) = @prob begin
     return y
 end
 
-function rejection(p, f)
-    function rejection_traced(acc)
-        @prob begin
-            x <<= p
-            y <<= if f(x)
-                dirac((acc, x))
-            else
-                rejection_traced([acc..., x])
-            end
-            x .>>= length(y[1])==length(acc) ? y[2] : y[1][length(acc)+1]
-            return y
-        end
-    end
-
-    @prob begin
-        # Run rejection sampling to get a list of rejections (loop) and an accepted sample (y)
-        (loop, y) <<= rejection_traced([])
-
-        # To unsample the loop:
-        loop >>= @prob begin
-            # Run rejection again
-            (loop, z) <<= rejection_traced([])
-            # Choose a random prefix of `loop` to return
-            j <<= categorical(ones(length(loop)+1))
-            (loop1, loop2) .<<= [loop[1:j-1], loop[j:end]]
-            # Unsample the remainder of the loop by running rejection again.
-            (loop, j) .>>= ([loop1..., loop2...], length(loop1)+1)
-            (loop2, z) >>= rejection_traced([])
-            return loop1
-        end
-
-        # Return the accepted sample.
-        return y
-    end
+# Generate samples from p until one is accepted by f;
+# return all samples in a list.
+rejection_traced(p, f) = @prob begin
+    x <<= p
+    xs <<= f(x) ? dirac([]) : rejection_traced(p, f)
+    return [x, xs...]
 end
 
+# Generate one sample from p conditioned on f
+rejection(p, f) = @prob begin 
+    [rejections..., accepted] <<= rejection_traced(p, f)
 
+    # Clean up rejections
+    rejections >>= @prob begin
+        # Choose a random prefix of a fresh rejection loop.
+        loop <<= rejection_traced(p, f)
+        j <<= categorical(ones(length(loop)))
+        rejections .<<= loop[1:j-1]
+        
+        # Clean up auxiliary randomness
+        loop >>= @prob begin
+            suffix <<= rejection_traced(p, f)
+            loop .<<= [rejections..., suffix...]
+            suffix .>>= loop[j:end]
+            return loop
+        end
+        j .>>= length(rejections) + 1
+
+        return rejections
+    end
+    return accepted
+end
+
+bivgauss() = @prob begin
+    x <<= normal(0, 1)
+    y <<= normal(0, 1)
+    (z, w) <<= dirac((2x + y, y - 3))
+    (x, y) >>= dirac(let myY = w + 3; ((z-myY)/2, myY); end)
+    return (z, w)
+end
 
 
 # # something like this may be more efficient than
@@ -198,4 +265,31 @@ end
 #     end
 # end
 
+
+# Loops: a variable can be assigned so long as it has been unassigned.
+# xs .<<= []
+# for n in 1:4
+#     x  <<= normal(0, 1)
+#     xs <<= push(&xs, &x)
+# end
+# return xs
+
+# A nicer way to express the following which is already valid (I think)
+# xs .<<= []
+# for n in 1:4
+#    x <<= normal(0, 1)
+#    ys <<= [xs..., x]
+#    xs .>>= ys[1:end-1]
+#    x .>>= ys[end]
+#    xs .<<= ys
+#    ys .>>= xs
+# end
+
+# But maybe we can even have mutable implementations, where:
+#   once &xs has been given to us, we own that storage?
+#   (there is an issue where ys .<<= xs does not copy xs...)
+#   (and therefore mutating could cause ys to change, which is bad)
+#   (need to think more through "reversible mutation" -- the work by Charles
+#    re pointers and data structures in Tower may be relevant)
+#    Still, we could use persistent data structures so that push is log-time.
 

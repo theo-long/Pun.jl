@@ -246,6 +246,34 @@ bivgauss() = @prob begin
     return (z, w)
 end
 
+exponential(rate) = @prob begin
+    u <<= uniform(0, 1)
+    x .<<= -log(1 - u) / rate
+    u >>= uniform(0, 1 - exp(-rate * x))
+    return x
+end
+
+gamma(shape::Int, scale) = @prob begin
+    if shape < 1
+        error("shape must be >= 1")
+    end
+    z <<= exponential(1/scale)
+    x <<= if shape > 1
+        @prob begin
+            u <<= gamma(shape - 1, scale)
+            x .<<= u + z
+            u .>>= x - z
+            return x
+        end
+    else 
+        dirac(z)
+    end
+    z .>>= shape > 1 ? 1/scale : x
+    scaled_x .<<= scale * x
+    x .>>= scaled_x / scale
+    return scaled_x
+end
+
 
 # # something like this may be more efficient than
 # # the manual iid implementation above.

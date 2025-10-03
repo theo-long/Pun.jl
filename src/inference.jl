@@ -27,6 +27,47 @@ function importance_sampling(p, q, y, basis, n)
     return particles
 end
 
+function mh(p, q, y, basis, w)
+    (y_new, basis_new, w_new), alpha = propose_mh(p, q, y, basis, w)
+    if log(rand()) < alpha
+        return (y_new, basis_new, w_new)
+    else
+        return (y, basis, w)
+    end
+end
+
+function propose_mh(p, q, y, basis, w)
+
+    state = EvalState()
+    dim = size(basis, 2)
+    state.cfg.n_inputs[] = dim
+    tangents = sparse_to_dictrows(basis)
+    y_, = attach_tangents(y, state.cfg, tangents, 1)
+    y_new_, deps = interpret_program(q(y_), state)
+    state.ambient = deps   # probably unnecessary
+    uninterpret_program(q(y_new_), state, y_, Set(1:dim))
+
+    y_new_partials = DynamicForwardDiff.Partials[]
+    tape_partials = DynamicForwardDiff.Partials[]
+    accumulate_partials!(y_new_, y_new_partials)
+    accumulate_partials!(state.tape, tape_partials)
+    Phat = dictrows_to_sparse(Dict{Int,Float64}[p.values for p in y_new_partials], state.cfg.n_inputs[])
+    Qblk = dictrows_to_sparse(Dict{Int,Float64}[p.values for p in tape_partials], state.cfg.n_inputs[])
+    
+    correction, y_new_basis = compute_jacobian_correction_simulate(Phat, Qblk)
+    log_q_ratio = state.logweight + correction # d(H\otimes q)/d(swap*(H \otimes q))(y_new, y)
+
+    y_new = unstock(y_new_)
+
+    new_w = assess(p, y_new, y_new_basis)
+
+    alpha = new_w - w + log_q_ratio
+
+    return (y_new, y_new_basis, new_w), alpha
+
+end
+
+
 
 
 

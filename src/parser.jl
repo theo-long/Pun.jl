@@ -18,8 +18,8 @@ end
 
 function return_missing_error(missing::AbstractSet{Symbol}, line::Union{Nothing,LineNumberNode})
     names = join(sort!(collect(missing)), ", ")
-    noun = length(names) == 1 ? "random variable" : "random variables"
-    pronoun = length(names) == 1 ? "it" : "them"
+    noun = length(missing) == 1 ? "random variable" : "random variables"
+    pronoun = length(missing) == 1 ? "it" : "them"
     msg = "@prob return must include $noun still in scope: [" * names * "]"
     msg *= ". Unassign $pronoun with `>>=` or include $pronoun in the return value."
     msg *= format_line_suffix(line)

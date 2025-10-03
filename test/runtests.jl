@@ -235,6 +235,18 @@ end
         @test occursin("b", sprint(showerror, err))
     end
 
+    @testset "Arrow parameters" begin
+        prog = @prob (x, y) -> begin
+            y >>= dirac(x)
+            return x
+        end
+        @test prog isa Pun.Block
+
+        @test_throws LoadError eval(:(@prob (x, y) -> begin
+            return x
+        end))
+    end
+
     @testset "isapproximately" begin
         struct Box
             center::Tuple{Float64, Float64}

@@ -35,6 +35,32 @@ function throw_pun_error(msg::String, line::Union{Nothing,LineNumberNode})
     end
 end
 
+function collect_param_symbols(params)
+    syms = Symbol[]
+    collect_param_symbols!(syms, params)
+    return syms
+end
+
+function collect_param_symbols!(syms::Vector{Symbol}, expr)
+    if expr isa Symbol
+        push!(syms, expr)
+    elseif expr isa Expr
+        if expr.head == :tuple
+            for arg in expr.args
+                collect_param_symbols!(syms, arg)
+            end
+        elseif expr.head == :(::)
+            collect_param_symbols!(syms, expr.args[1])
+        else
+            throw(ErrorException("Unsupported parameter pattern in @prob arrow form: $(expr)"))
+        end
+    elseif expr === nothing
+        return
+    else
+        throw(ErrorException("Unsupported parameter pattern in @prob arrow form: $(expr)"))
+    end
+end
+
 function return_not_pun_error(var::Symbol, line::Union{Nothing,LineNumberNode})
     msg = "@prob return expects a Pun variable, but `$var` has not been introduced via `<<=` or pattern destructuring"
     msg *= format_line_suffix(line)
@@ -71,17 +97,24 @@ function illegal_usage_error(sym::Symbol, line::Union{Nothing,LineNumberNode})
 end
 
 function parse_prob_block(source::LineNumberNode, ex)
-    body = if ex isa Expr && ex.head == :block
-        collect(ex.args)
+    params = Symbol[]
+    body_expr = ex
+    if ex isa Expr && ex.head == :-> && length(ex.args) == 2
+        params = collect_param_symbols(ex.args[1])
+        body_expr = ex.args[2]
+    end
+
+    body = if body_expr isa Expr && body_expr.head == :block
+        collect(body_expr.args)
     else
-        Any[ex]
+        Any[body_expr]
     end
 
     statements = Any[]
-    assigned_vars = Set{Symbol}()
+    assigned_vars = Set{Symbol}(params)
     block_var = gensym(:block)
     ret_seen = Ref(false)
-    current_line = Ref{Union{Nothing,LineNumberNode}}(nothing)
+    current_line = Ref{Union{Nothing,LineNumberNode}}(source)
     current_file = Ref(source.file)
 
     for stmt in body
@@ -153,7 +186,9 @@ end
 function process_pattern!(pattern, var_name, current_expr, d)
     # Given a pattern (e.g. (:x, :y)), we want to return a dictionary mapping 
     # variables to function expressions that would assign them.
-    if pattern isa Symbol
+    if pattern === nothing
+        return
+    elseif pattern isa Symbol
         d[pattern] = :($var_name -> $(Dirac)($current_expr))
     elseif pattern isa Expr && pattern.head == :tuple && !is_namedtuple_pattern(pattern)
         for (i, arg) in enumerate(pattern.args)
@@ -230,10 +265,11 @@ function process_vector_pattern!(pattern, var_name, current_expr, d)
     
     if splatted_idx === nothing
         # No splatting: simple vector pattern
-        for (i, sub_pattern) in enumerate(patterns)
-            element_access = :($(current_expr)[$i])
-            process_pattern!(sub_pattern, var_name, element_access, d)
-        end
+    for (i, sub_pattern) in enumerate(patterns)
+        sub_pattern === nothing && continue
+        element_access = :($(current_expr)[$i])
+        process_pattern!(sub_pattern, var_name, element_access, d)
+    end
     else
         # Handle splatting with unified approach
         splatted_pattern = patterns[splatted_idx]
@@ -251,6 +287,7 @@ function process_vector_pattern!(pattern, var_name, current_expr, d)
             
             # Process remaining elements
             for (i, sub_pattern) in enumerate(remaining_elements)
+                sub_pattern === nothing && continue
                 element_access = :($(current_expr)[end-$(length(remaining_elements)-i)])
                 process_pattern!(sub_pattern, var_name, element_access, d)
             end
@@ -262,6 +299,7 @@ function process_vector_pattern!(pattern, var_name, current_expr, d)
             
             # Process first elements
             for (i, sub_pattern) in enumerate(first_elements)
+                sub_pattern === nothing && continue
                 element_access = :($(current_expr)[$i])
                 process_pattern!(sub_pattern, var_name, element_access, d)
             end
@@ -278,6 +316,7 @@ function process_vector_pattern!(pattern, var_name, current_expr, d)
             
             # Process elements before splat
             for (i, sub_pattern) in enumerate(before_splat)
+                sub_pattern === nothing && continue
                 element_access = :($(current_expr)[$i])
                 process_pattern!(sub_pattern, var_name, element_access, d)
             end
@@ -288,6 +327,7 @@ function process_vector_pattern!(pattern, var_name, current_expr, d)
             
             # Process elements after splat
             for (i, sub_pattern) in enumerate(after_splat)
+                sub_pattern === nothing && continue
                 element_access = :($(current_expr)[end-$(length(after_splat)-i)])
                 process_pattern!(sub_pattern, var_name, element_access, d)
             end
@@ -301,6 +341,7 @@ function process_struct_pattern!(pattern, var_name, current_expr, d)
     field_patterns = pattern.args[2:end]
 
     for (i, field_pattern) in enumerate(field_patterns)
+        field_pattern === nothing && continue
         field_access = :(getfield($current_expr, $i))
         process_pattern!(field_pattern, var_name, field_access, d)
     end
@@ -314,6 +355,7 @@ function process_dict_pattern!(pattern, var_name, current_expr, d)
         if pair isa Expr && pair.head == :call && pair.args[1] == :(=>)
             key = pair.args[2]
             value_pattern = pair.args[3]
+            value_pattern === nothing && continue
             # Access dictionary value using the key
             value_access = :($(current_expr)[$key])
             process_pattern!(value_pattern, var_name, value_access, d)
@@ -330,6 +372,7 @@ function process_namedtuple_pattern!(pattern, var_name, current_expr, d)
         if pair isa Expr && pair.head == :(=)
             key = pair.args[1]
             value_pattern = pair.args[2]
+            value_pattern === nothing && continue
             # Access NamedTuple field using the key
             value_access = :(getfield($current_expr, $(QuoteNode(key))))
             process_pattern!(value_pattern, var_name, value_access, d)

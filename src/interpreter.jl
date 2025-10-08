@@ -160,6 +160,136 @@ function uninterpret_program(cmd::Normal, state, value, deps)
 end
 
 
+function interpret_program(cmd::Gamma, state)
+    dist = Distributions.Gamma(cmd.shape, cmd.scale)
+    val = rand(dist)
+    dual_val = DynamicForwardDiff.new_dual(state.cfg, val)
+    state.logweight -= Distributions.logpdf(dist, val)
+    return dual_val, Set(state.cfg.n_inputs[])
+end
+
+function uninterpret_program(cmd::Gamma, state, value, deps)
+    state.logweight += Distributions.logpdf(Distributions.Gamma(cmd.shape, cmd.scale), DynamicForwardDiff.value(value))
+    push!(state.tape, value)
+end
+
+function interpret_program(cmd::Uniform, state)
+    dist = Distributions.Uniform(cmd.a, cmd.b)
+    val = rand(dist)
+    dual_val = DynamicForwardDiff.new_dual(state.cfg, val)
+    state.logweight -= Distributions.logpdf(dist, val)
+    return dual_val, Set(state.cfg.n_inputs[])
+end
+function uninterpret_program(cmd::Uniform, state, value, deps)
+    state.logweight += Distributions.logpdf(Distributions.Uniform(cmd.a, cmd.b), DynamicForwardDiff.value(value))
+    push!(state.tape, value)
+end
+
+
+function interpret_program(cmd::Beta, state)
+    dist = Distributions.Beta(cmd.alpha, cmd.beta)
+    val = rand(dist)
+    dual_val = DynamicForwardDiff.new_dual(state.cfg, val)
+    state.logweight -= Distributions.logpdf(dist, val)
+    return dual_val, Set(state.cfg.n_inputs[])
+end
+function uninterpret_program(cmd::Beta, state, value, deps)
+    state.logweight += Distributions.logpdf(Distributions.Beta(cmd.alpha, cmd.beta), DynamicForwardDiff.value(value))
+    push!(state.tape, value)
+end
+
+
+function interpret_program(cmd::DirichletSymmetric, state)
+    dist = Distributions.Dirichlet(cmd.k, cmd.alpha)
+    val = rand(dist)
+    
+    dim_base = state.cfg.n_inputs[]
+    state.cfg.n_inputs[] += cmd.k - 1
+
+    mk_dual(i, v) = begin
+        if i < cmd.k
+            DynamicForwardDiff.Dual{Nothing}(v, DynamicForwardDiff.Partials(Dict{Int,Float64}(dim_base + i => 1.0), state.cfg.n_inputs))
+        else
+            DynamicForwardDiff.Dual{Nothing}(v, DynamicForwardDiff.Partials(Dict{Int,Float64}(j => -1.0 for j in (dim_base+1):(dim_base+cmd.k-1)), state.cfg.n_inputs))
+        end
+    end
+
+    dual_val = [mk_dual(i, v) for (i, v) in enumerate(val)]
+    
+    state.logweight -= Distributions.logpdf(dist, val)
+    return dual_val, Set(collect((dim_base+1):(dim_base+cmd.k-1)))
+end
+function uninterpret_program(cmd::DirichletSymmetric, state, value, deps)
+    state.logweight += Distributions.logpdf(Distributions.Dirichlet(cmd.k, cmd.alpha), DynamicForwardDiff.value.(value))
+    push!(state.tape, value[1:cmd.k-1]...)
+end
+
+
+
+function interpret_program(cmd::DirichletGeneral, state)
+    dist = Distributions.Dirichlet(cmd.alphas)
+    val = rand(dist)
+
+    k = length(cmd.alphas)
+    
+    dim_base = state.cfg.n_inputs[]
+    state.cfg.n_inputs[] += k - 1
+
+    mk_dual(i, v) = begin
+        if i < k
+            DynamicForwardDiff.Dual{Nothing}(v, DynamicForwardDiff.Partials(Dict{Int,Float64}(dim_base + i => 1.0), state.cfg.n_inputs))
+        else
+            DynamicForwardDiff.Dual{Nothing}(v, DynamicForwardDiff.Partials(Dict{Int,Float64}(j => -1.0 for j in (dim_base+1):(dim_base+k-1)), state.cfg.n_inputs))
+        end
+    end
+
+    dual_val = [mk_dual(i, v) for (i, v) in enumerate(val)]
+    
+    state.logweight -= Distributions.logpdf(dist, val)
+    return dual_val, Set(collect((dim_base+1):(dim_base+k-1)))
+end
+function uninterpret_program(cmd::DirichletGeneral, state, value, deps)
+    k = length(cmd.alphas)
+    state.logweight += Distributions.logpdf(Distributions.Dirichlet(cmd.alphas), DynamicForwardDiff.value.(value))
+    push!(state.tape, value[1:k-1]...)
+end
+
+function interpret_program(cmd::Bernoulli, state)
+    dist = Distributions.Bernoulli(cmd.p)
+    val = rand(dist)
+    state.logweight -= Distributions.logpdf(dist, val)
+    return val, Set()
+end
+function uninterpret_program(cmd::Bernoulli, state, value, deps)
+    dist = Distributions.Bernoulli(cmd.p)
+    state.logweight += Distributions.logpdf(dist, value)
+end
+
+
+function interpret_program(cmd::Categorical, state)
+    dist = Distributions.Categorical(cmd.probs)
+    val = rand(dist)
+    state.logweight -= Distributions.logpdf(dist, val)
+    return val, Set()
+end
+function uninterpret_program(cmd::Categorical, state, value, deps)
+    dist = Distributions.Categorical(cmd.probs)
+    state.logweight += Distributions.logpdf(dist, value)
+end
+
+
+function interpret_program(cmd::UniformDiscrete, state)
+    dist = Distributions.DiscreteUniform(cmd.a, cmd.b)
+    val = rand(dist)
+    state.logweight -= Distributions.logpdf(dist, val)
+    return val, Set()
+end
+function uninterpret_program(cmd::UniformDiscrete, state, value, deps)
+    dist = Distributions.UniformDiscrete(cmd.a, cmd.b)
+    state.logweight += Distributions.logpdf(dist, value)
+end
+
+
 # Jacobian corrections:
 
 function accumulate_partials!(val, partials)

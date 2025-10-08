@@ -125,8 +125,29 @@ function compute_jacobian_correction_simulate(Phat, Qblk)
 end
 
 
-function simulate(p)
+function simulate(p; args=nothing, arg_basis=nothing)
+
     state = EvalState()
+
+    if !isnothing(args)
+        @assert !isnothing(arg_basis) "simulate: if keyword argument `args` is provided, `arg_basis` must also be provided"
+        
+        tangents = sparse_to_dictrows(arg_basis)
+        k, d = size(arg_basis)
+        state.cfg.n_inputs[] = d
+        args, current = attach_tangents(args, state.cfg, tangents, 1)
+
+        # Assume args is a namedtuple and loop through its named fields
+        for field in fieldnames(typeof(args))
+            val = getfield(args, field)
+            state.vals[field] = val
+
+            # deps should really be computed while attaching tangents
+            state.deps[field] = Set()
+            accumulate_deps!(val, state.deps[field])
+        end
+    end
+
     ret, = interpret_program(p, state)
     ret_partials, tape_partials = [], []
     accumulate_partials!(ret, ret_partials)
@@ -140,6 +161,9 @@ function simulate(p)
     value = unstock(ret)
     return value, state.logweight + logpdf, basis
 end
+
+
+
 
 
 const DiscreteBase = spzeros(0,0)

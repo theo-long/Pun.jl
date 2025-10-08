@@ -6,16 +6,16 @@ f() = @prob begin
 end
 
 uniform(a, b) = @prob begin
-    x  <<= random()
-    y .<<= x * (b - a) + a 
+    x <<= random()
+    y .<<= x * (b - a) + a
     x .>>= (y - a) / (b - a)
     return y
 end
 
 flip(p) = @prob begin
-    u  <<= random()
+    u <<= random()
     b <<= dirac(u < p)
-    u  >>= b ? uniform(0, p) : uniform(p, 1)
+    u >>= b ? uniform(0, p) : uniform(p, 1)
     return b
 end
 
@@ -41,7 +41,7 @@ iid(p, n) = @prob begin
     if n == 0
         return []
     else
-        x  <<= p
+        x <<= p
         xs <<= iid(p, n - 1)
         return [x, xs...]
     end
@@ -65,7 +65,7 @@ mapM(f, xs) = @prob begin
     if isempty(xs)
         return []
     else
-        y  <<= f(xs[1])
+        y <<= f(xs[1])
         ys <<= mapM(f, xs[2:end])
         return [y, ys...]
     end
@@ -119,7 +119,7 @@ beta(a, b) = @prob begin
     xs <<= sorted(iid(random(), n))
     x .<<= xs[a]
     xs >>= @prob begin
-        (prefix, suffix) <<= sorted(iid(uniform(0, x), a-1)) ⊗ sorted(iid(uniform(x, 1), b-1))
+        (prefix, suffix) <<= sorted(iid(uniform(0, x), a - 1)) ⊗ sorted(iid(uniform(x, 1), b - 1))
         xs .<<= [prefix..., x, suffix...]
         (prefix, suffix) .>>= (xs[1:a-1], xs[a+1:end])
         return xs
@@ -134,17 +134,17 @@ example() = @prob begin
 end
 
 circle_example(r) = @prob begin
-    theta <<= uniform(0, pi/2)
-    point <<= dirac((r*cos(theta), r*sin(theta)))
-    theta >>= dirac(atan(point[2]/r, point[1]/r))
+    theta <<= uniform(0, pi / 2)
+    point <<= dirac((r * cos(theta), r * sin(theta)))
+    theta >>= dirac(atan(point[2] / r, point[1] / r))
     return point
 end
 
 
 uniform_on_circle(r) = @prob begin
     theta <<= uniform(-pi, pi)
-    point <<= dirac((r*cos(theta), r*sin(theta)))
-    theta >>= dirac(atan(point[2]/r, point[1]/r))
+    point <<= dirac((r * cos(theta), r * sin(theta)))
+    theta >>= dirac(atan(point[2] / r, point[1] / r))
     return point
 end
 
@@ -165,8 +165,8 @@ circle_example_2(r) = @prob begin
     u1 <<= normal(0, 1)
     u2 <<= normal(0, 1)
     z .<<= sqrt(u1^2 + u2^2)
-    (x, y) .<<= (u1*r/z, u2*r/z)
-    (u1, u2) .>>= (x*z/r, y*z/r)
+    (x, y) .<<= (u1 * r / z, u2 * r / z)
+    (u1, u2) .>>= (x * z / r, y * z / r)
     z >>= rayleigh()
     return (x, y)
 end
@@ -196,7 +196,9 @@ betabernIS(a, b) = @prob begin
     y <<= flip(u)
     u >>= @prob begin
         xs <<= iid(beta(a, b), 10)
-        j <<= let ws = [y ? p : 1 - p for p in xs]; categorical(ws) end
+        j <<= let ws = [y ? p : 1 - p for p in xs]
+            categorical(ws)
+        end
         x .<<= xs[j]
         xs >>= mapM(i -> i == j ? dirac(x) : beta(a, b), collect(1:10))
         j >>= categorical(ones(10))
@@ -214,7 +216,7 @@ rejection_traced(p, f) = @prob begin
 end
 
 # Generate one sample from p conditioned on f
-rejection(p, f) = @prob begin 
+rejection(p, f) = @prob begin
     [rejections..., accepted] <<= rejection_traced(p, f)
 
     # Clean up rejections
@@ -223,7 +225,7 @@ rejection(p, f) = @prob begin
         loop <<= rejection_traced(p, f)
         j <<= categorical(ones(length(loop)))
         rejections .<<= loop[1:j-1]
-        
+
         # Clean up auxiliary randomness
         loop >>= @prob begin
             suffix <<= rejection_traced(p, f)
@@ -242,8 +244,38 @@ bivgauss() = @prob begin
     x <<= normal(0, 1)
     y <<= normal(0, 1)
     (z, w) <<= dirac((2x + y, y - 3))
-    (x, y) >>= dirac(let myY = w + 3; ((z-myY)/2, myY); end)
+    (x, y) >>= dirac(let myY = w + 3
+        ((z - myY) / 2, myY)
+    end)
     return (z, w)
+end
+
+exponential(rate) = @prob begin
+    u <<= uniform(0, 1)
+    x .<<= -log(1 - u) / rate
+    u >>= uniform(0, 1 - exp(-rate * x))
+    return x
+end
+
+gamma(shape::Int, scale) = @prob begin
+    if shape < 1
+        error("shape must be >= 1")
+    end
+    z <<= exponential(1 / scale)
+    x <<= if shape > 1
+        @prob begin
+            u <<= gamma(shape - 1, scale)
+            x .<<= u + z
+            u .>>= x - z
+            return x
+        end
+    else
+        dirac(z)
+    end
+    z .>>= shape > 1 ? 1 / scale : x
+    scaled_x .<<= scale * x
+    x .>>= scaled_x / scale
+    return scaled_x
 end
 
 

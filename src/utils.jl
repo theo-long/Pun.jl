@@ -1,3 +1,4 @@
+"Sample from f(x) for x in xs"
 mapM(f, xs) = @prob begin
     if isempty(xs)
         return []
@@ -5,6 +6,17 @@ mapM(f, xs) = @prob begin
         y <<= f(xs[1])
         ys <<= mapM(f, xs[2:end])
         return [y, ys...]
+    end
+end
+
+"Sample n iid variables from p"
+iid(p, n) = @prob begin
+    if n == 0
+        return []
+    else
+        x <<= p
+        xs <<= iid(p, n - 1)
+        return [x, xs...]
     end
 end
 
@@ -35,4 +47,4 @@ function constrain(model::Block, constraints::Dict{Symbol,<:Any})
     return Block(new_commands, model.retvar)
 end
 
-export mapM, constrain
+export mapM, iid, constrain

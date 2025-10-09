@@ -10,18 +10,30 @@ function importance_sampling(p, q, y, basis, n)
     weights = []
     for i in 1:n
         _, w, _ = simulate((@prob y -> begin
-            x <<= q(y)
+                x <<= q(y)
 
-            # a hack to save `x` even though we are unassigning it
-            nothing .<<= push!(particles, unstock(x))  
+                # a hack to save `x` even though we are unassigning it
+                nothing .<<= push!(particles, unstock(x))
 
-            (x, y) >>= p
-            return nothing
-        end); args=(;y), arg_basis=basis)
+                (x, y) >>= p
+                return nothing
+            end); args=(; y), arg_basis=basis)
         push!(weights, w)
     end
 
     return collect(zip(particles, weights))
+end
+
+function importance_resampling(p, q, y, basis, n)
+    weighted_particles = importance_sampling(p, q, y, basis, n)
+    particles, log_weights = getindex.(weighted_particles, 1), getindex.(weighted_particles, 2)
+    weights = exp.(log_weights .- logsumexp(log_weights))
+    resampler = @prob begin
+        index <<= categorical(weights)
+        return index
+    end
+    index, _, _ = simulate(resampler)
+    return particles[index]
 end
 
 
@@ -56,12 +68,12 @@ function mh(p, q, y, w, basis)
     end
 end
 
-function propose_mh(p,q,y,w,basis)
-    new_y, q_ratio, new_basis = simulate((@prob old -> begin 
-        new <<= q(old)
-        old >>= q(new)
-        return new
-    end); args=(;old=y), arg_basis=basis)
+function propose_mh(p, q, y, w, basis)
+    new_y, q_ratio, new_basis = simulate((@prob old -> begin
+            new <<= q(old)
+            old >>= q(new)
+            return new
+        end); args=(; old=y), arg_basis=basis)
     new_w = assess(p, new_y, new_basis)
     return (new_y, new_w, new_basis), new_w - w + q_ratio
 end
@@ -104,6 +116,6 @@ end
 
 
 # function interpret_program(is::IS, state)
-    
+
 
 # end

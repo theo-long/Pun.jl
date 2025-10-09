@@ -1,3 +1,5 @@
+using LogExpFunctions
+
 # struct Observation
 #     # f
 #     y

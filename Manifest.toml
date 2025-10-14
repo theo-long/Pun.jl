@@ -2,7 +2,7 @@
 
 julia_version = "1.11.7"
 manifest_format = "2.0"
-project_hash = "6c36b8073dbb6c7b0fdf98e16e02dffcf6d0e5c5"
+project_hash = "c947d6d8a95923bde2ca0b7d0e75b5ef01f37796"
 
 [[deps.AliasTables]]
 deps = ["PtrArrays", "Random"]
@@ -869,9 +869,9 @@ version = "1.7.1"
 
 [[deps.StatsBase]]
 deps = ["AliasTables", "DataAPI", "DataStructures", "LinearAlgebra", "LogExpFunctions", "Missings", "Printf", "Random", "SortingAlgorithms", "SparseArrays", "Statistics", "StatsAPI"]
-git-tree-sha1 = "b81c5035922cc89c2d9523afc6c54be512411466"
+git-tree-sha1 = "2c962245732371acd51700dbb268af311bddd719"
 uuid = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
-version = "0.34.5"
+version = "0.34.6"
 
 [[deps.StatsFuns]]
 deps = ["HypergeometricFunctions", "IrrationalConstants", "LogExpFunctions", "Reexport", "Rmath", "SpecialFunctions"]
